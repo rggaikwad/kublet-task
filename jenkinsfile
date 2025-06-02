@@ -1,35 +1,66 @@
 pipeline {
     agent any
 
+    environment {
+        AWS_ACCOUNT_ID = '102338601122'
+        AWS_REGION = 'us-east-1'
+        IMAGE_NAME = 'flask-app'
+        ECR_REPO_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_NAME}"
+    }
+
     stages {
-        stage('Clone Code') {
+        stage('Checkout Code') {
             steps {
-                git 'https://github.com/your-username/your-repo.git'
+                git 'https://github.com/rggaikwad/task3.git'
+            }
+        }
+
+        stage('Authenticate with ECR') {
+            steps {
+                script {
+                    sh '''
+                    aws --version
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URI
+                    '''
+                }
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    sh 'docker build -t service1:latest .'
-                }
+                sh 'docker build -t $IMAGE_NAME .'
             }
         }
 
-        stage('Push to Minikube') {
+        stage('Tag Docker Image') {
             steps {
-                script {
-                    sh 'minikube image load service1:latest'
-                }
+                sh 'docker tag $IMAGE_NAME:latest $ECR_REPO_URI:latest'
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Push to ECR') {
             steps {
-                script {
-                    sh 'kubectl apply -f service1-deployment.yaml'
+                sh 'docker push $ECR_REPO_URI:latest'
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh '''
+                    kubectl apply -f flask-deployment.yaml
+                    '''
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Deployment successful!'
+        }
+        failure {
+            echo '❌ Deployment failed.'
         }
     }
 }
